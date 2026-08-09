@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +28,30 @@ func detectRepo() (*Repository, error) {
 		Root: root,
 	}
 	return repo, nil
+}
+
+func (r *Repository) Remote() (string, error) {
+	cmd := exec.Command("git", "remote", "get-url", "origin")
+	cmd.Dir = r.Root
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+func (r *Repository) ID() (string, error) {
+	remote, err := r.Remote()
+	if err != nil {
+		return "", err
+	}
+
+	normalized := normalizeRemote(remote)
+
+	sum := sha256.Sum256([]byte(normalized))
+	return fmt.Sprintf("%x", sum), nil
 }
 
 func (r *Repository) FileExists(path string) (bool, error) {
@@ -71,4 +97,21 @@ func (r *Repository) IsIgnored(path string) (bool, error) {
 		}
 	}
 	return false, err
+}
+
+func normalizeRemote(remote string) string {
+	remote = strings.TrimSpace(remote)
+
+	remote = strings.TrimSuffix(remote, ".git")
+
+	if strings.HasPrefix(remote, "git@") {
+		remote = strings.TrimPrefix(remote, "git@")
+		remote = strings.Replace(remote, ":", "/", 1)
+	}
+
+	remote = strings.TrimPrefix(remote, "https://")
+	remote = strings.TrimPrefix(remote, "http://")
+	remote = strings.TrimPrefix(remote, "ssh://git@")
+
+	return strings.ToLower(remote)
 }
