@@ -1,13 +1,13 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"crypto/sha256"
-	"fmt"
 )
 
 type Repository struct {
