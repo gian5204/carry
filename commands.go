@@ -41,6 +41,19 @@ func addCommand(path string) error {
         return fmt.Errorf("file %s is not ignored by Git", path)
     }
 
-    fmt.Printf("%s can be managed by Carry\n", path)
+    manifest, err := loadManifest(repo)
+	if err != nil {
+		return err
+	}
+
+	added := manifest.Add(path)
+	if !added {
+		return fmt.Errorf("path %s is already managed by Carry", path)
+	}
+
+	if err := saveManifest(repo, manifest); err != nil {
+		return err
+	}
+
     return nil
 }
