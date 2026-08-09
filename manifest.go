@@ -58,3 +58,13 @@ func (m *Manifest) Add(path string) bool {
 	m.Files = append(m.Files, path)
 	return true
 }
+
+func (m *Manifest) Remove(path string) bool {
+	for i, file := range m.Files {
+		if file == path {
+			m.Files = append(m.Files[:i], m.Files[i+1:]...)
+			return true
+		}
+	}
+	return false
+}

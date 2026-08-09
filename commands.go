@@ -79,3 +79,28 @@ func listCommand() error {
 
 	return nil
 }
+
+func removeCommand(path string) error {
+	repo, err := detectRepo()
+	if err != nil {
+		return err
+	}
+
+	manifest, err := loadManifest(repo)
+	if err != nil {
+		return err
+	}
+
+	if len(manifest.Files) == 0 {
+		return fmt.Errorf("no files are managed by Carry")
+	}
+
+	removed := manifest.Remove(path)
+	if !removed {
+		return fmt.Errorf("path %s is not managed by Carry", path)
+	}
+	if err := saveManifest(repo, manifest); err != nil {
+		return err
+	}
+	return nil
+}
