@@ -4,8 +4,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
-	"strings"
 	"path/filepath"
+	"strings"
 )
 
 type Repository struct {
@@ -35,6 +35,22 @@ func (r *Repository) FileExists(path string) (bool, error) {
 		return true, nil
 	}
 	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (r *Repository) IsTracked(path string) (bool, error) {
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", path)
+
+	cmd.Dir = r.Root
+
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return false, nil
 	}
 	return false, err

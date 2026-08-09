@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-"path/filepath")
+	"path/filepath"
+)
 
 func main() {
 	repo, err := detectRepo()
@@ -12,7 +13,6 @@ func main() {
 	}
 	fmt.Printf("Repo detected:\n%s\n", repo.Root)
 
-
 	tempPath := ".env"
 	exists, err := repo.FileExists(tempPath)
 	if err != nil {
@@ -20,8 +20,18 @@ func main() {
 		return
 	}
 	if !exists {
-		
+
 		fmt.Printf("File %s not found", filepath.Join(repo.Root, tempPath))
+		return
+	}
+
+	tracked, err := repo.IsTracked(tempPath)
+	if err != nil {
+		fmt.Println("Error checking whether file is tracked:", err)
+		return
+	}
+	if tracked {
+		fmt.Printf("File: %s is currently tracked", tempPath)
 		return
 	}
 
