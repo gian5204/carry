@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os/exec"
 	"strings"
 )
@@ -23,4 +24,21 @@ func detectRepo() (*Repository, error) {
 		Root: root,
 	}
 	return repo, nil
+}
+
+func (r *Repository) IsIgnored(path string) (bool, error) {
+	cmd := exec.Command("git", "check-ignore", path)
+
+	cmd.Dir = r.Root
+
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	} else {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+	}
+	return false, err
 }
