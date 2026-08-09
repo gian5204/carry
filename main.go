@@ -2,47 +2,31 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
+	"os"
 )
 
 func main() {
-	repo, err := detectRepo()
-	if err != nil {
-		fmt.Println("Error detecting git repository:", err)
-		return
-	}
-	fmt.Printf("Repo detected:\n%s\n", repo.Root)
+	if len(os.Args) < 2 {
+        fmt.Println("Usage: carry <command> [arguments]")
+        return
+    }
 
-	tempPath := ".env"
-	exists, err := repo.FileExists(tempPath)
-	if err != nil {
-		fmt.Println("Error checking if file exists:", err)
-		return
-	}
-	if !exists {
+	command := os.Args[1]
 
-		fmt.Printf("File %s not found", filepath.Join(repo.Root, tempPath))
-		return
-	}
+    switch command {
+    case "add":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: carry add <path>")
+			return
+		}
 
-	tracked, err := repo.IsTracked(tempPath)
-	if err != nil {
-		fmt.Println("Error checking whether file is tracked:", err)
-		return
-	}
-	if tracked {
-		fmt.Printf("File: %s is currently tracked", tempPath)
-		return
-	}
+		err := addCommand(os.Args[2])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
 
-	ignored, err := repo.IsIgnored(tempPath)
-	if err != nil {
-		fmt.Println("Error checking whether file is ignored:", err)
-		return
-	}
-	if ignored {
-		fmt.Printf("%s is ignored\n", tempPath)
-	} else {
-		fmt.Printf("%s is not ignored\n", tempPath)
-	}
+    default:
+        fmt.Printf("Unknown command: %s\n", command)
+    }
 }
