@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -23,4 +26,49 @@ func detectRepo() (*Repository, error) {
 		Root: root,
 	}
 	return repo, nil
+}
+
+func (r *Repository) FileExists(path string) (bool, error) {
+	fullPath := filepath.Join(r.Root, path)
+	_, err := os.Stat(fullPath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (r *Repository) IsTracked(path string) (bool, error) {
+	cmd := exec.Command("git", "ls-files", "--error-unmatch", path)
+
+	cmd.Dir = r.Root
+
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
+}
+
+func (r *Repository) IsIgnored(path string) (bool, error) {
+	cmd := exec.Command("git", "check-ignore", path)
+
+	cmd.Dir = r.Root
+
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	} else {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+	}
+	return false, err
 }
