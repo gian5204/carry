@@ -10,7 +10,8 @@ func main() {
 		fmt.Println(`Usage: carry <command> [arguments]
 Commands:
 	add <path>    Add a file to Carry
-	list          List files managed by Carry`)
+	list          List files managed by Carry
+	remove <path> Remove a file from Carry`)
 		return
 	}
 
@@ -31,6 +32,18 @@ Commands:
 
 	case "list":
 		err := listCommand()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+	case "remove":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: carry remove <path>")
+			return
+		}
+
+		err := removeCommand(os.Args[2])
 		if err != nil {
 			fmt.Println(err)
 			return
