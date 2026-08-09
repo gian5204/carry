@@ -7,7 +7,10 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: carry <command> [arguments]")
+		fmt.Println(`Usage: carry <command> [arguments]
+Commands:
+	add <path>    Add a file to Carry
+	list          List files managed by Carry`)
 		return
 	}
 
@@ -21,6 +24,13 @@ func main() {
 		}
 
 		err := addCommand(os.Args[2])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+	case "list": 
+		err := listCommand()
 		if err != nil {
 			fmt.Println(err)
 			return
