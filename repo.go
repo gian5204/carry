@@ -2,8 +2,10 @@ package main
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
+	"path/filepath"
 )
 
 type Repository struct {
@@ -24,6 +26,18 @@ func detectRepo() (*Repository, error) {
 		Root: root,
 	}
 	return repo, nil
+}
+
+func (r *Repository) FileExists(path string) (bool, error) {
+	fullPath := filepath.Join(r.Root, path)
+	_, err := os.Stat(fullPath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (r *Repository) IsIgnored(path string) (bool, error) {

@@ -1,6 +1,8 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+"path/filepath")
 
 func main() {
 	repo, err := detectRepo()
@@ -12,6 +14,17 @@ func main() {
 
 
 	tempPath := ".env"
+	exists, err := repo.FileExists(tempPath)
+	if err != nil {
+		fmt.Println("Error checking if file exists:", err)
+		return
+	}
+	if !exists {
+		
+		fmt.Printf("File %s not found", filepath.Join(repo.Root, tempPath))
+		return
+	}
+
 	ignored, err := repo.IsIgnored(tempPath)
 	if err != nil {
 		fmt.Println("Error checking whether file is ignored:", err)
