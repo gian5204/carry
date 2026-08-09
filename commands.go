@@ -57,3 +57,25 @@ func addCommand(path string) error {
 
 	return nil
 }
+
+func listCommand() error {
+	repo, err := detectRepo()
+	if err != nil {
+		return err
+	}
+
+	manifest, err := loadManifest(repo)
+	if err != nil {
+		return err
+	}
+
+	if len(manifest.Files) == 0 {
+		return fmt.Errorf("no files are managed by Carry")
+	}
+
+	for _, file := range manifest.Files {
+		fmt.Println(file)
+	}
+
+	return nil
+}
