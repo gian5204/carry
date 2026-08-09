@@ -29,7 +29,7 @@ Commands:
 			return
 		}
 
-	case "list": 
+	case "list":
 		err := listCommand()
 		if err != nil {
 			fmt.Println(err)
