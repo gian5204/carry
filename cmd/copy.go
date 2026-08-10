@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gian5204/carry/internal/manifest"
 	"github.com/gian5204/carry/internal/repo"
@@ -44,11 +47,29 @@ func Copy(destination string) error {
 		return fmt.Errorf("target is not a clone of the same repository")
 	}
 
+	reader := bufio.NewReader(os.Stdin)
+
 	for _, file := range m.Files {
 		sourcePath := filepath.Join(sourceRepo.Root, file)
 		targetPath := filepath.Join(targetRepo.Root, file)
 
-		if err := copyFile(sourcePath, targetPath); err != nil {
+		overwrite := false
+		if _, err := os.Stat(targetPath); err == nil {
+			fmt.Printf("File %q already exists. Overwrite? (y/N) ", file)
+
+			answer, err := reader.ReadString('\n')
+			if err != nil && !errors.Is(err, io.EOF) {
+				return err
+			}
+			if !strings.EqualFold(strings.TrimSpace(answer), "y") {
+				continue
+			}
+			overwrite = true
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+
+		if err := copyFile(sourcePath, targetPath, overwrite); err != nil {
 			return err
 		}
 	}
@@ -56,11 +77,13 @@ func Copy(destination string) error {
 	return nil
 }
 
-func copyFile(sourcePath, targetPath string) error {
-	if _, err := os.Stat(targetPath); err == nil {
-		return fmt.Errorf("target file %s already exists", targetPath)
-	} else if !os.IsNotExist(err) {
-		return err
+func copyFile(sourcePath, targetPath string, overwrite bool) error {
+	if !overwrite {
+		if _, err := os.Stat(targetPath); err == nil {
+			return fmt.Errorf("target file %s already exists", targetPath)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 	}
 
 	src, err := os.Open(sourcePath)
