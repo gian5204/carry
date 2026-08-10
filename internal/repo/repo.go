@@ -1,6 +1,7 @@
 package repo
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"errors"
 	"fmt"
@@ -103,6 +104,42 @@ func (r *Repository) IsIgnored(path string) (bool, error) {
 		}
 	}
 	return false, err
+}
+
+func (r *Repository) IgnoredUntrackedFiles() ([]string, error) {
+	cmd := exec.Command(
+		"git",
+		"ls-files",
+		"--others",
+		"--ignored",
+		"--exclude-standard",
+		"-z",
+	)
+	cmd.Dir = r.Root
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	entries := bytes.Split(output, []byte{0})
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if len(entry) == 0 {
+			continue
+		}
+
+		path := string(entry)
+		info, err := os.Stat(filepath.Join(r.Root, path))
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode().IsRegular() {
+			files = append(files, path)
+		}
+	}
+
+	return files, nil
 }
 
 func normalizeRemote(remote string) string {

@@ -11,9 +11,10 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Println(`Usage: carry <command> [arguments]
 Commands:
-	add <path>    Add a file to Carry
-	list          List files managed by Carry
-	remove <path> Remove a file from Carry`)
+	add <path>     Add a file to Carry
+	discover       Discover unmanaged local files
+	list           List files managed by Carry
+	remove <path>  Remove a file from Carry`)
 		return
 	}
 
@@ -34,6 +35,13 @@ Commands:
 
 	case "list":
 		err := cmd.List()
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+	case "discover":
+		err := cmd.Discover()
 		if err != nil {
 			fmt.Println(err)
 			return

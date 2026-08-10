@@ -1,8 +1,7 @@
 {
   "version": 1,
   "files": [
-    ".env.local",
-    ".env.local.2",
-    "local_testing/.test.json"
+    ".env.local.3",
+    ".env.local.4"
   ]
 }
