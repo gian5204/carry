@@ -11,7 +11,16 @@ import (
 
 	"github.com/gian5204/carry/internal/manifest"
 	"github.com/gian5204/carry/internal/repo"
+	"github.com/gian5204/carry/internal/ui"
 )
+
+type copyItem struct {
+	sourcePath   string
+	targetPath   string
+	relativePath string
+	overwrite    bool
+	skip         bool
+}
 
 func Copy(destination string) error {
 	sourceRepo, err := repo.Detect()
@@ -47,34 +56,117 @@ func Copy(destination string) error {
 		return fmt.Errorf("target is not a clone of the same repository")
 	}
 
-	reader := bufio.NewReader(os.Stdin)
+	plan, err := buildCopyPlan(
+		sourceRepo.Root,
+		targetRepo.Root,
+		m.Files,
+		bufio.NewReader(os.Stdin),
+		os.Stdout,
+	)
+	if err != nil {
+		return err
+	}
 
-	for _, file := range m.Files {
-		sourcePath := filepath.Join(sourceRepo.Root, file)
-		targetPath := filepath.Join(targetRepo.Root, file)
+	copied, skipped, err := executeCopyPlan(plan)
+	if err != nil {
+		return err
+	}
 
-		overwrite := false
-		if _, err := os.Stat(targetPath); err == nil {
-			fmt.Printf("File %q already exists. Overwrite? (y/N) ", file)
+	printCopySummary(os.Stdout, targetRepo.Root, copied, skipped)
+
+	return nil
+}
+
+func buildCopyPlan(
+	sourceRoot string,
+	targetRoot string,
+	files []string,
+	reader *bufio.Reader,
+	output io.Writer,
+) ([]copyItem, error) {
+	plan := make([]copyItem, 0, len(files))
+
+	for _, file := range files {
+		item := copyItem{
+			sourcePath:   filepath.Join(sourceRoot, file),
+			targetPath:   filepath.Join(targetRoot, file),
+			relativePath: file,
+		}
+
+		if _, err := os.Stat(item.targetPath); err == nil {
+			fmt.Fprintf(
+				output,
+				"%s %s already exists in target. Overwrite? [y/N] ",
+				ui.Yellow("!"),
+				item.relativePath,
+			)
 
 			answer, err := reader.ReadString('\n')
 			if err != nil && !errors.Is(err, io.EOF) {
-				return err
+				return nil, err
 			}
-			if !strings.EqualFold(strings.TrimSpace(answer), "y") {
-				continue
+			if strings.EqualFold(strings.TrimSpace(answer), "y") {
+				item.overwrite = true
+			} else {
+				item.skip = true
 			}
-			overwrite = true
 		} else if !os.IsNotExist(err) {
-			return err
+			return nil, err
 		}
 
-		if err := copyFile(sourcePath, targetPath, overwrite); err != nil {
-			return err
-		}
+		plan = append(plan, item)
 	}
 
-	return nil
+	return plan, nil
+}
+
+func executeCopyPlan(plan []copyItem) (int, int, error) {
+	copied := 0
+	skipped := 0
+
+	for _, item := range plan {
+		if item.skip {
+			skipped++
+			continue
+		}
+
+		if err := copyFile(item.sourcePath, item.targetPath, item.overwrite); err != nil {
+			return copied, skipped, err
+		}
+		copied++
+	}
+
+	return copied, skipped, nil
+}
+
+func printCopySummary(output io.Writer, destination string, copied, skipped int) {
+	fmt.Fprintf(
+		output,
+		"%s %s %d %s %s %s\n",
+		ui.Green("✓"),
+		ui.BoldGreen("Copied"),
+		copied,
+		pluralizeFiles(copied),
+		ui.Dim("to"),
+		destination,
+	)
+
+	if skipped > 0 {
+		fmt.Fprintf(
+			output,
+			"  %d %s %s\n",
+			skipped,
+			pluralizeFiles(skipped),
+			ui.Dim("skipped"),
+		)
+	}
+}
+
+func pluralizeFiles(count int) string {
+	if count == 1 {
+		return "file"
+	}
+	return "files"
 }
 
 func copyFile(sourcePath, targetPath string, overwrite bool) error {
@@ -96,7 +188,12 @@ func copyFile(sourcePath, targetPath string, overwrite bool) error {
 		return err
 	}
 
-	dst, err := os.Create(targetPath)
+	flags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if overwrite {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	}
+
+	dst, err := os.OpenFile(targetPath, flags, 0666)
 	if err != nil {
 		return err
 	}
