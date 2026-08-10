@@ -1,4 +1,4 @@
-package main
+package repo
 
 import (
 	"crypto/sha256"
@@ -14,7 +14,8 @@ type Repository struct {
 	Root string
 }
 
-func detectRepo() (*Repository, error) {
+// finds the Git repository containing the current working directory
+func Detect() (*Repository, error) {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
 	output, err := cmd.Output()
 
@@ -24,10 +25,10 @@ func detectRepo() (*Repository, error) {
 
 	root := strings.TrimSpace(string(output))
 
-	repo := &Repository{
+	repository := &Repository{
 		Root: root,
 	}
-	return repo, nil
+	return repository, nil
 }
 
 func (r *Repository) Remote() (string, error) {

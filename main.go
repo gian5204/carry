@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/gian5204/carry/cmd"
 )
 
 func main() {
@@ -24,14 +26,14 @@ Commands:
 			return
 		}
 
-		err := addCommand(os.Args[2])
+		err := cmd.Add(os.Args[2])
 		if err != nil {
 			fmt.Println(err)
 			return
 		}
 
 	case "list":
-		err := listCommand()
+		err := cmd.List()
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -43,7 +45,7 @@ Commands:
 			return
 		}
 
-		err := removeCommand(os.Args[2])
+		err := cmd.Remove(os.Args[2])
 		if err != nil {
 			fmt.Println(err)
 			return
