@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -152,6 +153,9 @@ func TestSenderAndReceiverHandshake(t *testing.T) {
 		connection, err := listener.Accept()
 		if err == nil {
 			err = ReceiveHandshake(connection)
+			if err == nil {
+				err = ReceiveRepositoryVerification(connection, "matching-repository")
+			}
 			connection.Close()
 		}
 		receiverResult <- err
@@ -166,6 +170,9 @@ func TestSenderAndReceiverHandshake(t *testing.T) {
 	if err := SendHandshake(connection); err != nil {
 		t.Fatalf("SendHandshake() error = %v", err)
 	}
+	if err := SendRepositoryVerification(connection, "matching-repository"); err != nil {
+		t.Fatalf("SendRepositoryVerification() error = %v", err)
+	}
 
 	select {
 	case err := <-receiverResult:
@@ -174,6 +181,136 @@ func TestSenderAndReceiverHandshake(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("ReceiveHandshake() did not return")
+	}
+}
+
+func TestRepositoryVerificationRejectsMismatch(t *testing.T) {
+	sender, receiver := net.Pipe()
+	defer sender.Close()
+	defer receiver.Close()
+
+	receiverResult := make(chan error, 1)
+	go func() {
+		receiverResult <- ReceiveRepositoryVerification(
+			receiver,
+			"receiver-repository",
+		)
+	}()
+
+	err := SendRepositoryVerification(sender, "sender-repository")
+	if !errors.Is(err, ErrRepositoryMismatch) {
+		t.Fatalf("SendRepositoryVerification() error = %v; want repository mismatch", err)
+	}
+
+	select {
+	case err := <-receiverResult:
+		if !errors.Is(err, ErrRepositoryMismatch) {
+			t.Fatalf("ReceiveRepositoryVerification() error = %v; want repository mismatch", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveRepositoryVerification() did not return")
+	}
+}
+
+func TestRepositoryVerificationRejectsMalformedMessage(t *testing.T) {
+	response, receiverErr := repositoryVerificationRejection(
+		t,
+		"{\"type\":\"repository\",\"protocolVersion\":1}\n",
+	)
+
+	if response.Type != TypeReject {
+		t.Errorf("rejection type = %q; want %q", response.Type, TypeReject)
+	}
+	if response.Error != "invalid repository message" {
+		t.Errorf("rejection reason = %q; want %q", response.Error, "invalid repository message")
+	}
+	if !strings.Contains(receiverErr.Error(), "repository identity is required") {
+		t.Errorf("receiver error = %q; want missing identity error", receiverErr)
+	}
+}
+
+func TestRepositoryVerificationRejectsUnexpectedMessage(t *testing.T) {
+	response, receiverErr := repositoryVerificationRejection(
+		t,
+		"{\"type\":\"hello\",\"protocolVersion\":1}\n",
+	)
+
+	if response.Type != TypeReject {
+		t.Errorf("rejection type = %q; want %q", response.Type, TypeReject)
+	}
+	if response.Error != "unexpected repository message" {
+		t.Errorf("rejection reason = %q; want %q", response.Error, "unexpected repository message")
+	}
+	if !strings.Contains(receiverErr.Error(), "unexpected message type") {
+		t.Errorf("receiver error = %q; want unexpected type error", receiverErr)
+	}
+}
+
+func TestRepositoryVerificationPeerDisconnects(t *testing.T) {
+	receiver, peer := net.Pipe()
+	defer receiver.Close()
+
+	result := make(chan error, 1)
+	go func() {
+		result <- ReceiveRepositoryVerification(receiver, "repository")
+	}()
+
+	if _, err := peer.Write([]byte("{\"type\":\"repository\"")); err != nil {
+		t.Fatalf("peer.Write() error = %v", err)
+	}
+	if err := peer.Close(); err != nil {
+		t.Fatalf("peer.Close() error = %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("ReceiveRepositoryVerification() error = nil; want disconnect error")
+		}
+		if !strings.Contains(err.Error(), "read repository identity") {
+			t.Errorf("ReceiveRepositoryVerification() error = %q; want read error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveRepositoryVerification() did not return")
+	}
+}
+
+func repositoryVerificationRejection(
+	t *testing.T,
+	request string,
+) (Message, error) {
+	t.Helper()
+
+	receiver, peer := net.Pipe()
+	defer receiver.Close()
+	defer peer.Close()
+
+	if err := peer.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("peer.SetDeadline() error = %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		result <- ReceiveRepositoryVerification(receiver, "repository")
+	}()
+
+	if _, err := peer.Write([]byte(request)); err != nil {
+		t.Fatalf("peer.Write() error = %v", err)
+	}
+	response, err := readMessage(peer)
+	if err != nil {
+		t.Fatalf("readMessage(rejection) error = %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("ReceiveRepositoryVerification() error = nil; want rejection error")
+		}
+		return response, err
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveRepositoryVerification() did not return")
+		return Message{}, nil
 	}
 }
 

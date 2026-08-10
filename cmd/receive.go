@@ -20,6 +20,10 @@ func Receive(args []string) error {
 	if err != nil {
 		return err
 	}
+	repositoryID, err := currentRepositoryIdentity()
+	if err != nil {
+		return err
+	}
 
 	return transport.ReceiveOnce(
 		port,
@@ -29,6 +33,13 @@ func Receive(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Handshake complete")
+			if err := protocol.ReceiveRepositoryVerification(
+				connection,
+				repositoryID,
+			); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Repository verified")
 			return nil
 		},
 	)
