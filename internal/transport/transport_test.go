@@ -26,7 +26,12 @@ func TestAcceptOne(t *testing.T) {
 	var output bytes.Buffer
 	result := make(chan error, 1)
 	go func() {
-		result <- acceptOne(listener, ":0", &output)
+		result <- acceptOne(
+			listener,
+			":0",
+			&output,
+			func(net.Conn) error { return nil },
+		)
 	}()
 
 	connection, err := net.DialTimeout("tcp4", listener.Addr().String(), 5*time.Second)
@@ -80,7 +85,11 @@ func TestSendOnce(t *testing.T) {
 
 	var output bytes.Buffer
 	address := listener.Addr().String()
-	if err := SendOnce(address, &output); err != nil {
+	if err := SendOnce(
+		address,
+		&output,
+		func(net.Conn) error { return nil },
+	); err != nil {
 		t.Fatalf("SendOnce() error = %v", err)
 	}
 
@@ -110,7 +119,11 @@ func TestSendOnceConnectionFailure(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	err = SendOnce(address, &output)
+	err = SendOnce(
+		address,
+		&output,
+		func(net.Conn) error { return nil },
+	)
 	if err == nil {
 		t.Fatal("SendOnce() error = nil; want connection error")
 	}

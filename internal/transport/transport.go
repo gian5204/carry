@@ -11,7 +11,11 @@ const DefaultPort = 4242
 
 const connectTimeout = 5 * time.Second
 
-func ReceiveOnce(port int, output io.Writer) error {
+func ReceiveOnce(
+	port int,
+	output io.Writer,
+	handleConnection func(net.Conn) error,
+) error {
 	address := fmt.Sprintf(":%d", port)
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
@@ -19,10 +23,15 @@ func ReceiveOnce(port int, output io.Writer) error {
 	}
 	defer listener.Close()
 
-	return acceptOne(listener, address, output)
+	return acceptOne(listener, address, output, handleConnection)
 }
 
-func acceptOne(listener net.Listener, displayAddress string, output io.Writer) error {
+func acceptOne(
+	listener net.Listener,
+	displayAddress string,
+	output io.Writer,
+	handleConnection func(net.Conn) error,
+) error {
 	fmt.Fprintf(output, "Listening on %s\n", displayAddress)
 
 	connection, err := listener.Accept()
@@ -31,23 +40,32 @@ func acceptOne(listener net.Listener, displayAddress string, output io.Writer) e
 	}
 
 	fmt.Fprintf(output, "Connected from %s\n", connection.RemoteAddr())
-	if err := connection.Close(); err != nil {
-		return fmt.Errorf("close connection: %w", err)
-	}
-
-	return nil
+	return useConnection(connection, handleConnection)
 }
 
-func SendOnce(address string, output io.Writer) error {
+func SendOnce(
+	address string,
+	output io.Writer,
+	handleConnection func(net.Conn) error,
+) error {
 	connection, err := net.DialTimeout("tcp", address, connectTimeout)
 	if err != nil {
 		return fmt.Errorf("connect to %s: %w", address, err)
 	}
 
 	fmt.Fprintf(output, "Connected to %s\n", address)
-	if err := connection.Close(); err != nil {
-		return fmt.Errorf("close connection: %w", err)
-	}
+	return useConnection(connection, handleConnection)
+}
 
-	return nil
+func useConnection(
+	connection net.Conn,
+	handleConnection func(net.Conn) error,
+) (err error) {
+	defer func() {
+		if closeErr := connection.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close connection: %w", closeErr)
+		}
+	}()
+
+	return handleConnection(connection)
 }

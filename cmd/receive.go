@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 
+	"github.com/gian5204/carry/internal/protocol"
 	"github.com/gian5204/carry/internal/transport"
 )
 
@@ -19,7 +21,17 @@ func Receive(args []string) error {
 		return err
 	}
 
-	return transport.ReceiveOnce(port, os.Stdout)
+	return transport.ReceiveOnce(
+		port,
+		os.Stdout,
+		func(connection net.Conn) error {
+			if err := protocol.ReceiveHandshake(connection); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Handshake complete")
+			return nil
+		},
+	)
 }
 
 func receivePort(args []string) (int, error) {

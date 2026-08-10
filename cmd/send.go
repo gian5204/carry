@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/gian5204/carry/internal/protocol"
 	"github.com/gian5204/carry/internal/transport"
 )
 
@@ -15,7 +16,17 @@ func Send(args []string) error {
 		return err
 	}
 
-	return transport.SendOnce(address, os.Stdout)
+	return transport.SendOnce(
+		address,
+		os.Stdout,
+		func(connection net.Conn) error {
+			if err := protocol.SendHandshake(connection); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Handshake complete")
+			return nil
+		},
+	)
 }
 
 func sendAddress(args []string) (string, error) {
