@@ -7,6 +7,8 @@ import (
 	"github.com/gian5204/carry/cmd"
 )
 
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println(`Usage: carry <command> [arguments]
@@ -21,6 +23,9 @@ Commands:
 	command := os.Args[1]
 
 	switch command {
+	case "version", "--version", "-v":
+		fmt.Println(versionText())
+
 	case "add":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: carry add <path> [path...]")
@@ -74,4 +79,8 @@ Commands:
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}
+}
+
+func versionText() string {
+	return fmt.Sprintf("Carry %s", version)
 }
