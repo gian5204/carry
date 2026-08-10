@@ -27,7 +27,16 @@ func Discover() error {
 		return err
 	}
 
-	discoveredFiles := filterDiscoveryCandidates(ignoredUntrackedFiles, currentManifest.Files)
+	ignoreRules, err := discovery.LoadIgnoreRules(repository.Root)
+	if err != nil {
+		return err
+	}
+
+	discoveredFiles := filterDiscoveryCandidates(
+		ignoredUntrackedFiles,
+		currentManifest.Files,
+		ignoreRules,
+	)
 	if len(discoveredFiles) == 0 {
 		fmt.Println("No unmanaged local files discovered.")
 		return nil
@@ -46,7 +55,11 @@ func Discover() error {
 	return nil
 }
 
-func filterDiscoveryCandidates(discoveredFiles, managedFiles []string) []string {
+func filterDiscoveryCandidates(
+	discoveredFiles,
+	managedFiles []string,
+	ignoreRules discovery.IgnoreRules,
+) []string {
 	managed := make(map[string]struct{}, len(managedFiles))
 	for _, file := range managedFiles {
 		managed[filepath.Clean(file)] = struct{}{}
@@ -55,6 +68,9 @@ func filterDiscoveryCandidates(discoveredFiles, managedFiles []string) []string 
 	filtered := make([]string, 0, len(discoveredFiles))
 	for _, file := range discoveredFiles {
 		if discovery.ShouldExclude(file) {
+			continue
+		}
+		if ignoreRules.ShouldExclude(file) {
 			continue
 		}
 

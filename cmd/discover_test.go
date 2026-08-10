@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/gian5204/carry/internal/discovery"
 )
 
 func TestFilterDiscoveryCandidatesExcludesBuiltInsAndManagedFiles(t *testing.T) {
@@ -19,7 +21,7 @@ func TestFilterDiscoveryCandidatesExcludesBuiltInsAndManagedFiles(t *testing.T) 
 		filepath.Join("config", "local.json"),
 	}
 
-	got := filterDiscoveryCandidates(discovered, managed)
+	got := filterDiscoveryCandidates(discovered, managed, discovery.IgnoreRules{})
 	want := []string{"a.env", "z.env"}
 
 	if !slices.Equal(got, want) {
@@ -30,7 +32,7 @@ func TestFilterDiscoveryCandidatesExcludesBuiltInsAndManagedFiles(t *testing.T) 
 func TestFilterDiscoveryCandidatesSortsWithoutManifestEntries(t *testing.T) {
 	discovered := []string{"z.env", "a.env", "m.env"}
 
-	got := filterDiscoveryCandidates(discovered, nil)
+	got := filterDiscoveryCandidates(discovered, nil, discovery.IgnoreRules{})
 	want := []string{"a.env", "m.env", "z.env"}
 
 	if !slices.Equal(got, want) {
