@@ -32,3 +32,7 @@ func BoldGreen(text string) string {
 func Yellow(text string) string {
 	return yellow + text + reset
 }
+
+func Usage(command, argument string) string {
+	return Bold("Usage:") + "\n  carry " + Cyan(command) + " " + Dim(argument)
+}
