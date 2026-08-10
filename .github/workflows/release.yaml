@@ -1,0 +1,260 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $GITHUB_REF_NAME"
+            echo "Expected format: vMAJOR.MINOR.PATCH (for example v0.1.0)"
+            exit 1
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Vet
+        run: go vet ./...
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: windows
+            goarch: amd64
+            archive: zip
+
+          - goos: windows
+            goarch: arm64
+            archive: zip
+
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+
+          - goos: linux
+            goarch: arm64
+            archive: tar.gz
+
+          - goos: darwin
+            goarch: amd64
+            archive: tar.gz
+
+          - goos: darwin
+            goarch: arm64
+            archive: tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="$GITHUB_REF_NAME"
+            VERSION_NO_V="${VERSION#v}"
+          else
+            VERSION="dev"
+            VERSION_NO_V="dev"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_no_v=$VERSION_NO_V" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+          VERSION: ${{ steps.version.outputs.version }}
+          VERSION_NO_V: ${{ steps.version.outputs.version_no_v }}
+        run: |
+          mkdir -p dist/package
+
+          if [ "$GOOS" = "windows" ]; then
+            BINARY="carry.exe"
+          else
+            BINARY="carry"
+          fi
+
+          go build \
+            -ldflags="-s -w -X main.version=${VERSION}" \
+            -o "dist/package/${BINARY}" \
+            .
+
+          PACKAGE="carry_${VERSION_NO_V}_${GOOS}_${GOARCH}"
+
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            (
+              cd dist/package
+              zip "../${PACKAGE}.zip" "${BINARY}"
+            )
+          else
+            (
+              cd dist/package
+              tar -czf "../${PACKAGE}.tar.gz" "${BINARY}"
+            )
+          fi
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: carry-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  smoke-test:
+    needs: build
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            artifact: carry-linux-amd64
+            platform: linux
+
+          - runner: windows-latest
+            artifact: carry-windows-amd64
+            platform: windows
+
+          - runner: macos-latest
+            artifact: carry-darwin-arm64
+            platform: darwin
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist
+
+      - name: Extract and test Linux binary
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          mkdir -p smoke
+          tar -xzf dist/*.tar.gz -C smoke
+          chmod +x smoke/carry
+
+          smoke/carry --version
+          smoke/carry --help
+
+      - name: Extract and test macOS binary
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          mkdir -p smoke
+          tar -xzf dist/*.tar.gz -C smoke
+          chmod +x smoke/carry
+
+          smoke/carry --version
+          smoke/carry --help
+
+      - name: Extract and test Windows binary
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path smoke -Force | Out-Null
+
+          $archive = Get-ChildItem -Path dist -Filter *.zip | Select-Object -First 1
+          Expand-Archive -Path $archive.FullName -DestinationPath smoke
+
+          & .\smoke\carry.exe --version
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          & .\smoke\carry.exe --help
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+  package:
+    needs: smoke-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: carry-*
+          path: dist
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: dist
+        shell: bash
+        run: sha256sum carry_* > checksums.txt
+
+      - name: Upload packaged release artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-artifacts
+          path: |
+            dist/carry_*
+            dist/checksums.txt
+          if-no-files-found: error
+
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: release-artifacts
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/carry_*
+            dist/checksums.txt
