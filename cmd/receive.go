@@ -20,6 +20,10 @@ func Receive(args []string) error {
 	if err != nil {
 		return err
 	}
+	_, repositoryID, err := detectRepositoryIdentity()
+	if err != nil {
+		return err
+	}
 
 	return transport.ReceiveOnce(
 		port,
@@ -29,6 +33,17 @@ func Receive(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Handshake complete")
+			if err := protocol.ReceiveRepositoryVerification(
+				connection,
+				repositoryID,
+			); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Repository verified")
+			if _, err := protocol.ReceiveManagedFiles(connection); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Managed files accepted")
 			return nil
 		},
 	)
