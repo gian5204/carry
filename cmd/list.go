@@ -5,6 +5,7 @@ import (
 
 	"github.com/gian5204/carry/internal/manifest"
 	"github.com/gian5204/carry/internal/repo"
+	"github.com/gian5204/carry/internal/ui"
 )
 
 // prints files managed by Carry for the current repository
@@ -23,8 +24,14 @@ func List() error {
 		return fmt.Errorf("no files are managed by Carry")
 	}
 
+	fmt.Printf(
+		"%s %s\n\n",
+		ui.Bold("Managed files"),
+		ui.Dim(fmt.Sprintf("(%d)", len(currentManifest.Files))),
+	)
+
 	for _, file := range currentManifest.Files {
-		fmt.Println(file)
+		fmt.Printf("  %s %s\n", ui.Green("●"), file)
 	}
 
 	return nil
