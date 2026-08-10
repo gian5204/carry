@@ -77,6 +77,30 @@ func main() {
 			return
 		}
 
+	case "receive":
+		if len(os.Args) > 3 {
+			fmt.Println(ui.Usage("receive", "[port]"))
+			return
+		}
+
+		err := cmd.Receive(os.Args[2:])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
+	case "send":
+		if len(os.Args) != 3 {
+			fmt.Println(ui.Usage("send", "<address>"))
+			return
+		}
+
+		err := cmd.Send(os.Args[2:])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 		fmt.Println("Run 'carry --help' for usage.")
@@ -94,6 +118,8 @@ func printHelp(output io.Writer) {
 		{name: "list", description: "List managed files"},
 		{name: "discover", description: "Discover ignored local files"},
 		{name: "copy", arguments: "<destination>", description: "Copy managed files to another clone"},
+		{name: "receive", arguments: "[port]", description: "Listen for an incoming Carry connection"},
+		{name: "send", arguments: "<address>", description: "Connect to a remote Carry receiver"},
 		{name: "version", description: "Show Carry version"},
 		{name: "help", description: "Show this help"},
 	}
