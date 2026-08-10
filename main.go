@@ -11,10 +11,10 @@ func main() {
 	if len(os.Args) < 2 {
 		fmt.Println(`Usage: carry <command> [arguments]
 Commands:
-	add <path>     Add a file to Carry
-	discover       Discover unmanaged local files
-	list           List files managed by Carry
-	remove <path>  Remove a file from Carry`)
+	add <path> [path...]     Add files to Carry
+	discover                 Discover unmanaged local files
+	list                     List files managed by Carry
+	remove <path> [path...]  Remove files from Carry`)
 		return
 	}
 
@@ -23,11 +23,11 @@ Commands:
 	switch command {
 	case "add":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: carry add <path>")
+			fmt.Println("Usage: carry add <path> [path...]")
 			return
 		}
 
-		err := cmd.Add(os.Args[2])
+		err := cmd.Add(os.Args[2:])
 		if err != nil {
 			fmt.Println(err)
 			return
@@ -49,11 +49,11 @@ Commands:
 
 	case "remove":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: carry remove <path>")
+			fmt.Println("Usage: carry remove <path> [path...]")
 			return
 		}
 
-		err := cmd.Remove(os.Args[2])
+		err := cmd.Remove(os.Args[2:])
 		if err != nil {
 			fmt.Println(err)
 			return
