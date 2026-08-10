@@ -29,7 +29,7 @@ func main() {
 
 	case "add":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: carry add <path...>")
+			fmt.Println(ui.Usage("add", "<path...>"))
 			return
 		}
 
@@ -55,7 +55,7 @@ func main() {
 
 	case "remove":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: carry remove <path...>")
+			fmt.Println(ui.Usage("remove", "<path...>"))
 			return
 		}
 
@@ -67,7 +67,7 @@ func main() {
 
 	case "copy":
 		if len(os.Args) < 3 {
-			fmt.Println("Usage: carry copy <destination>")
+			fmt.Println(ui.Usage("copy", "<destination>"))
 			return
 		}
 
