@@ -6,6 +6,7 @@ import (
 
 	"github.com/gian5204/carry/internal/manifest"
 	"github.com/gian5204/carry/internal/repo"
+	"github.com/gian5204/carry/internal/ui"
 )
 
 // adds a file to Carry's manifest for the current repository
@@ -52,12 +53,20 @@ func Add(path string) error {
 
 	added := currentManifest.Add(path)
 	if !added {
-		return fmt.Errorf("path %s is already managed by Carry", path)
+		return fmt.Errorf("%s %s is already managed by Carry", ui.Yellow("!"), path)
 	}
 
 	if err := manifest.Save(repository, currentManifest); err != nil {
 		return err
 	}
+
+	fmt.Printf(
+		"%s %s %s %s\n",
+		ui.Green("✓"),
+		ui.BoldGreen("Added"),
+		path,
+		ui.Dim("to Carry"),
+	)
 
 	return nil
 }
