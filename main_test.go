@@ -32,6 +32,7 @@ func TestPrintHelp(t *testing.T) {
 		"  " + ui.Cyan("add") + " " + ui.Dim("<path...>") + "         Add files to Carry",
 		"  " + ui.Cyan("copy") + " " + ui.Dim("<destination>") + "    Copy managed files to another clone",
 		"  " + ui.Cyan("receive") + " " + ui.Dim("[port]") + "        Listen for an incoming Carry connection",
+		"  " + ui.Cyan("send") + " " + ui.Dim("<address>") + "        Connect to a remote Carry receiver",
 		"  " + ui.Cyan("help") + "                  Show this help",
 	}
 
