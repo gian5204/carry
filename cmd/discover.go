@@ -54,7 +54,7 @@ func Discover() error {
 	)
 
 	for _, file := range discoveredFiles {
-		fmt.Printf("  %s %s\n", ui.Green("●"), file)
+		fmt.Printf("  %s %s\n", ui.Cyan("●"), file)
 	}
 
 	fmt.Println()

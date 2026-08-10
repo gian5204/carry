@@ -2,6 +2,7 @@ package ui
 
 const (
 	bold   = "\x1b[1m"
+	cyan   = "\x1b[36m"
 	dim    = "\x1b[2m"
 	green  = "\x1b[32m"
 	yellow = "\x1b[33m"
@@ -14,6 +15,10 @@ func Bold(text string) string {
 
 func Dim(text string) string {
 	return dim + text + reset
+}
+
+func Cyan(text string) string {
+	return cyan + text + reset
 }
 
 func Green(text string) string {
