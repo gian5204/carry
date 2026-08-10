@@ -32,17 +32,25 @@ Carry stores managed repository-relative paths in `.carry.json`. This file does 
 
 ## Installation
 
-### From source
+Carry requires Git to be installed.
 
-If you have Go installed:
+### Pre-built binaries
+
+Pre-built binaries are available from the GitHub Releases page for:
+
+- Windows (AMD64, ARM64)
+- Linux (AMD64, ARM64)
+- macOS (AMD64, ARM64)
+
+Download the archive for your platform, extract it, and place the `carry` executable somewhere on your `PATH`.
+
+### Go
+
+If you have Go installed, you can install Carry with:
 
 ```bash
 go install github.com/gian5204/carry@latest
 ```
-
-Carry also requires Git.
-
-Pre-built binaries will be available with the v0.1.0 release.
 
 ## Usage
 
