@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/gian5204/carry/internal/discovery"
 	"github.com/gian5204/carry/internal/manifest"
 	"github.com/gian5204/carry/internal/repo"
 	"github.com/gian5204/carry/internal/ui"
@@ -26,7 +27,7 @@ func Discover() error {
 		return err
 	}
 
-	discoveredFiles := filterManagedFiles(ignoredUntrackedFiles, currentManifest.Files)
+	discoveredFiles := filterDiscoveryCandidates(ignoredUntrackedFiles, currentManifest.Files)
 	if len(discoveredFiles) == 0 {
 		fmt.Println("No unmanaged local files discovered.")
 		return nil
@@ -45,7 +46,7 @@ func Discover() error {
 	return nil
 }
 
-func filterManagedFiles(discoveredFiles, managedFiles []string) []string {
+func filterDiscoveryCandidates(discoveredFiles, managedFiles []string) []string {
 	managed := make(map[string]struct{}, len(managedFiles))
 	for _, file := range managedFiles {
 		managed[filepath.Clean(file)] = struct{}{}
@@ -53,6 +54,10 @@ func filterManagedFiles(discoveredFiles, managedFiles []string) []string {
 
 	filtered := make([]string, 0, len(discoveredFiles))
 	for _, file := range discoveredFiles {
+		if discovery.ShouldExclude(file) {
+			continue
+		}
+
 		if _, exists := managed[filepath.Clean(file)]; !exists {
 			filtered = append(filtered, file)
 		}
