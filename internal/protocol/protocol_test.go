@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -64,10 +65,234 @@ func TestReadMessage(t *testing.T) {
 			if err != nil {
 				t.Fatalf("readMessage() error = %v", err)
 			}
-			if got != test.want {
+			if !reflect.DeepEqual(got, test.want) {
 				t.Errorf("readMessage() = %+v; want %+v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestManagedFilesExchange(t *testing.T) {
+	sender, receiver := net.Pipe()
+	defer sender.Close()
+	defer receiver.Close()
+
+	type receiveResult struct {
+		files []string
+		err   error
+	}
+	receiverResult := make(chan receiveResult, 1)
+	go func() {
+		files, err := ReceiveManagedFiles(receiver)
+		receiverResult <- receiveResult{files: files, err: err}
+	}()
+
+	files := []string{".env", ".env.local", `config\local.json`}
+	if err := SendManagedFiles(sender, files); err != nil {
+		t.Fatalf("SendManagedFiles() error = %v", err)
+	}
+
+	select {
+	case result := <-receiverResult:
+		if result.err != nil {
+			t.Fatalf("ReceiveManagedFiles() error = %v", result.err)
+		}
+		want := []string{".env", ".env.local", "config/local.json"}
+		if !reflect.DeepEqual(result.files, want) {
+			t.Errorf("received files = %v; want %v", result.files, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveManagedFiles() did not return")
+	}
+}
+
+func TestManagedFilesRejectsInvalidMetadata(t *testing.T) {
+	tests := []struct {
+		name      string
+		request   string
+		wantError string
+	}{
+		{
+			name:      "malformed files field",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":"invalid"}` + "\n",
+			wantError: "decode protocol message",
+		},
+		{
+			name:      "empty list",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":[]}` + "\n",
+			wantError: "managed file list is empty",
+		},
+		{
+			name:      "duplicate paths",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":[".env",".env"]}` + "\n",
+			wantError: "duplicate managed path",
+		},
+		{
+			name:      "absolute path",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":["/etc/passwd"]}` + "\n",
+			wantError: "absolute",
+		},
+		{
+			name:      "traversal",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":["../secret"]}` + "\n",
+			wantError: "traversal",
+		},
+		{
+			name:      "Windows drive path",
+			request:   `{"type":"managed_files","protocolVersion":1,"files":["C:\\secrets\\local.env"]}` + "\n",
+			wantError: "Windows volume",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response, receiverErr := managedFilesRejection(t, test.request)
+			if response.Type != TypeReject {
+				t.Errorf("rejection type = %q; want %q", response.Type, TypeReject)
+			}
+			if response.Error != "invalid managed-file metadata" {
+				t.Errorf(
+					"rejection reason = %q; want %q",
+					response.Error,
+					"invalid managed-file metadata",
+				)
+			}
+			if !strings.Contains(receiverErr.Error(), test.wantError) {
+				t.Errorf(
+					"receiver error = %q; want error containing %q",
+					receiverErr,
+					test.wantError,
+				)
+			}
+		})
+	}
+}
+
+func TestManagedFilesRejectsUnexpectedMessage(t *testing.T) {
+	response, receiverErr := managedFilesRejection(
+		t,
+		`{"type":"ack","protocolVersion":1}`+"\n",
+	)
+
+	if response.Type != TypeReject {
+		t.Errorf("rejection type = %q; want %q", response.Type, TypeReject)
+	}
+	if response.Error != "unexpected managed-file message" {
+		t.Errorf(
+			"rejection reason = %q; want %q",
+			response.Error,
+			"unexpected managed-file message",
+		)
+	}
+	if !strings.Contains(receiverErr.Error(), "unexpected message type") {
+		t.Errorf("receiver error = %q; want unexpected type error", receiverErr)
+	}
+}
+
+func TestManagedFilesPeerDisconnects(t *testing.T) {
+	receiver, peer := net.Pipe()
+	defer receiver.Close()
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := ReceiveManagedFiles(receiver)
+		result <- err
+	}()
+
+	if _, err := peer.Write([]byte(`{"type":"managed_files"`)); err != nil {
+		t.Fatalf("peer.Write() error = %v", err)
+	}
+	if err := peer.Close(); err != nil {
+		t.Fatalf("peer.Close() error = %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("ReceiveManagedFiles() error = nil; want disconnect error")
+		}
+		if !strings.Contains(err.Error(), "read managed-file metadata") {
+			t.Errorf("ReceiveManagedFiles() error = %q; want read error", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveManagedFiles() did not return")
+	}
+}
+
+func TestManagedFilesSenderSurfacesRejection(t *testing.T) {
+	sender, peer := net.Pipe()
+	defer sender.Close()
+	defer peer.Close()
+
+	if err := peer.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("peer.SetDeadline() error = %v", err)
+	}
+
+	peerResult := make(chan error, 1)
+	go func() {
+		_, err := readMessage(peer)
+		if err == nil {
+			err = writeMessage(peer, Message{
+				Type:            TypeReject,
+				ProtocolVersion: ProtocolVersion,
+				Error:           "metadata rejected",
+			})
+		}
+		peerResult <- err
+	}()
+
+	err := SendManagedFiles(sender, []string{".env"})
+	if err == nil {
+		t.Fatal("SendManagedFiles() error = nil; want rejection error")
+	}
+	if !strings.Contains(err.Error(), "managed-file metadata rejected: metadata rejected") {
+		t.Errorf("SendManagedFiles() error = %q; want rejection reason", err)
+	}
+
+	select {
+	case err := <-peerResult:
+		if err != nil {
+			t.Fatalf("peer error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("peer did not return")
+	}
+}
+
+func managedFilesRejection(t *testing.T, request string) (Message, error) {
+	t.Helper()
+
+	receiver, peer := net.Pipe()
+	defer receiver.Close()
+	defer peer.Close()
+
+	if err := peer.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("peer.SetDeadline() error = %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := ReceiveManagedFiles(receiver)
+		result <- err
+	}()
+
+	if _, err := peer.Write([]byte(request)); err != nil {
+		t.Fatalf("peer.Write() error = %v", err)
+	}
+	response, err := readMessage(peer)
+	if err != nil {
+		t.Fatalf("readMessage(rejection) error = %v", err)
+	}
+
+	select {
+	case err := <-result:
+		if err == nil {
+			t.Fatal("ReceiveManagedFiles() error = nil; want rejection error")
+		}
+		return response, err
+	case <-time.After(5 * time.Second):
+		t.Fatal("ReceiveManagedFiles() did not return")
+		return Message{}, nil
 	}
 }
 
@@ -156,6 +381,9 @@ func TestSenderAndReceiverHandshake(t *testing.T) {
 			if err == nil {
 				err = ReceiveRepositoryVerification(connection, "matching-repository")
 			}
+			if err == nil {
+				_, err = ReceiveManagedFiles(connection)
+			}
 			connection.Close()
 		}
 		receiverResult <- err
@@ -172,6 +400,12 @@ func TestSenderAndReceiverHandshake(t *testing.T) {
 	}
 	if err := SendRepositoryVerification(connection, "matching-repository"); err != nil {
 		t.Fatalf("SendRepositoryVerification() error = %v", err)
+	}
+	if err := SendManagedFiles(
+		connection,
+		[]string{".env", "config/local.json"},
+	); err != nil {
+		t.Fatalf("SendManagedFiles() error = %v", err)
 	}
 
 	select {

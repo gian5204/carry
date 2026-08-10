@@ -15,7 +15,7 @@ func Send(args []string) error {
 	if err != nil {
 		return err
 	}
-	repositoryID, err := currentRepositoryIdentity()
+	repository, repositoryID, err := detectRepositoryIdentity()
 	if err != nil {
 		return err
 	}
@@ -35,6 +35,14 @@ func Send(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Repository verified")
+			managedFiles, err := loadManagedFiles(repository)
+			if err != nil {
+				return err
+			}
+			if err := protocol.SendManagedFiles(connection, managedFiles); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Managed files accepted")
 			return nil
 		},
 	)

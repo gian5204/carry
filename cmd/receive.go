@@ -20,7 +20,7 @@ func Receive(args []string) error {
 	if err != nil {
 		return err
 	}
-	repositoryID, err := currentRepositoryIdentity()
+	_, repositoryID, err := detectRepositoryIdentity()
 	if err != nil {
 		return err
 	}
@@ -40,6 +40,10 @@ func Receive(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Repository verified")
+			if _, err := protocol.ReceiveManagedFiles(connection); err != nil {
+				return err
+			}
+			fmt.Fprintln(os.Stdout, "Managed files accepted")
 			return nil
 		},
 	)

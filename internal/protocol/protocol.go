@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"time"
+
+	"github.com/gian5204/carry/internal/managedpath"
 )
 
 const ProtocolVersion = 1
@@ -18,10 +20,12 @@ var ErrRepositoryMismatch = errors.New("repository mismatch")
 type MessageType string
 
 const (
-	TypeHello      MessageType = "hello"
-	TypeAck        MessageType = "ack"
-	TypeRepository MessageType = "repository"
-	TypeReject     MessageType = "reject"
+	TypeHello           MessageType = "hello"
+	TypeAck             MessageType = "ack"
+	TypeRepository      MessageType = "repository"
+	TypeReject          MessageType = "reject"
+	TypeManagedFiles    MessageType = "managed_files"
+	TypeManagedFilesAck MessageType = "managed_files_ack"
 )
 
 type Message struct {
@@ -29,6 +33,7 @@ type Message struct {
 	ProtocolVersion int         `json:"protocolVersion"`
 	RepositoryID    string      `json:"repositoryId,omitempty"`
 	Error           string      `json:"error,omitempty"`
+	Files           []string    `json:"files,omitempty"`
 }
 
 func SendHandshake(connection net.Conn) error {
@@ -118,21 +123,21 @@ func ReceiveRepositoryVerification(connection net.Conn, repositoryID string) err
 
 	request, err := readMessage(connection)
 	if err != nil {
-		return rejectRepositoryVerification(
+		return rejectProtocolMessage(
 			connection,
 			"invalid repository message",
 			fmt.Errorf("read repository identity: %w", err),
 		)
 	}
 	if err := expectMessageType(request, TypeRepository); err != nil {
-		return rejectRepositoryVerification(
+		return rejectProtocolMessage(
 			connection,
 			"unexpected repository message",
 			fmt.Errorf("validate repository identity: %w", err),
 		)
 	}
 	if request.RepositoryID != repositoryID {
-		return rejectRepositoryVerification(
+		return rejectProtocolMessage(
 			connection,
 			ErrRepositoryMismatch.Error(),
 			ErrRepositoryMismatch,
@@ -151,7 +156,78 @@ func ReceiveRepositoryVerification(connection net.Conn, repositoryID string) err
 	return nil
 }
 
-func rejectRepositoryVerification(
+func SendManagedFiles(connection net.Conn, files []string) error {
+	if err := setExchangeDeadline(connection); err != nil {
+		return err
+	}
+	defer connection.SetDeadline(time.Time{})
+
+	request := Message{
+		Type:            TypeManagedFiles,
+		ProtocolVersion: ProtocolVersion,
+		Files:           files,
+	}
+	if err := writeMessage(connection, request); err != nil {
+		return fmt.Errorf("send managed-file metadata: %w", err)
+	}
+
+	response, err := readMessage(connection)
+	if err != nil {
+		return fmt.Errorf("read managed-file acknowledgment: %w", err)
+	}
+	if response.Type == TypeReject {
+		return fmt.Errorf("managed-file metadata rejected: %s", response.Error)
+	}
+	if err := expectMessageType(response, TypeManagedFilesAck); err != nil {
+		return fmt.Errorf("validate managed-file acknowledgment: %w", err)
+	}
+
+	return nil
+}
+
+func ReceiveManagedFiles(connection net.Conn) ([]string, error) {
+	if err := setExchangeDeadline(connection); err != nil {
+		return nil, err
+	}
+	defer connection.SetDeadline(time.Time{})
+
+	request, err := readMessage(connection)
+	if err != nil {
+		return nil, rejectProtocolMessage(
+			connection,
+			"invalid managed-file metadata",
+			fmt.Errorf("read managed-file metadata: %w", err),
+		)
+	}
+	if err := expectMessageType(request, TypeManagedFiles); err != nil {
+		return nil, rejectProtocolMessage(
+			connection,
+			"unexpected managed-file message",
+			fmt.Errorf("validate managed-file metadata: %w", err),
+		)
+	}
+
+	files, err := managedpath.NormalizeAll(request.Files)
+	if err != nil {
+		return nil, rejectProtocolMessage(
+			connection,
+			"invalid managed-file metadata",
+			fmt.Errorf("validate managed-file metadata: %w", err),
+		)
+	}
+
+	acknowledgment := Message{
+		Type:            TypeManagedFilesAck,
+		ProtocolVersion: ProtocolVersion,
+	}
+	if err := writeMessage(connection, acknowledgment); err != nil {
+		return nil, fmt.Errorf("send managed-file acknowledgment: %w", err)
+	}
+
+	return files, nil
+}
+
+func rejectProtocolMessage(
 	connection net.Conn,
 	reason string,
 	cause error,
@@ -199,7 +275,12 @@ func validateMessage(message Message) error {
 	switch message.Type {
 	case "":
 		return fmt.Errorf("message type is required")
-	case TypeHello, TypeAck, TypeRepository, TypeReject:
+	case TypeHello,
+		TypeAck,
+		TypeRepository,
+		TypeReject,
+		TypeManagedFiles,
+		TypeManagedFilesAck:
 	default:
 		return fmt.Errorf("unknown message type %q", message.Type)
 	}
@@ -221,6 +302,10 @@ func validateMessage(message Message) error {
 	case TypeReject:
 		if message.Error == "" {
 			return fmt.Errorf("rejection reason is required")
+		}
+	case TypeManagedFiles:
+		if _, err := managedpath.NormalizeAll(message.Files); err != nil {
+			return err
 		}
 	}
 
