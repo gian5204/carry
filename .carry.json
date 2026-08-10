@@ -1,4 +1,7 @@
 {
   "version": 1,
-  "files": []
+  "files": [
+    ".env.local",
+    ".env.local.2"
+  ]
 }

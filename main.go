@@ -51,6 +51,18 @@ Commands:
 			return
 		}
 
+	case "copy":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: carry copy <path>")
+			return
+		}
+
+		err := cmd.Copy(os.Args[2])
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n", command)
 	}

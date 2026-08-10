@@ -14,11 +14,16 @@ type Repository struct {
 	Root string
 }
 
-// finds the Git repository containing the current working directory
 func Detect() (*Repository, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	output, err := cmd.Output()
+	return DetectAt(".")
+}
 
+func DetectAt(path string) (*Repository, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	//TODO: improve error handling for nonexistent paths
+	cmd.Dir = path
+
+	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
