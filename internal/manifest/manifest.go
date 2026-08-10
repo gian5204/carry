@@ -1,10 +1,12 @@
-package main
+package manifest
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/gian5204/carry/internal/repo"
 )
 
 type Manifest struct {
@@ -12,8 +14,9 @@ type Manifest struct {
 	Files   []string `json:"files"`
 }
 
-func loadManifest(repo *Repository) (*Manifest, error) {
-	fullPath := filepath.Join(repo.Root, ".carry.json")
+// loads the Carry manifest for a repository
+func Load(repository *repo.Repository) (*Manifest, error) {
+	fullPath := filepath.Join(repository.Root, ".carry.json")
 	data, err := os.ReadFile(fullPath)
 
 	if err != nil {
@@ -27,23 +30,23 @@ func loadManifest(repo *Repository) (*Manifest, error) {
 		return nil, err
 	}
 
-	var manifest Manifest
+	var currentManifest Manifest
 
-	err = json.Unmarshal(data, &manifest)
+	err = json.Unmarshal(data, &currentManifest)
 	if err != nil {
 		return nil, err
 	}
-	return &manifest, nil
-
+	return &currentManifest, nil
 }
 
-func saveManifest(repo *Repository, manifest *Manifest) error {
-	jsonData, err := json.MarshalIndent(manifest, "", "  ")
+// saves the Carry manifest for a repository
+func Save(repository *repo.Repository, currentManifest *Manifest) error {
+	jsonData, err := json.MarshalIndent(currentManifest, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	fullPath := filepath.Join(repo.Root, ".carry.json")
+	fullPath := filepath.Join(repository.Root, ".carry.json")
 	err = os.WriteFile(fullPath, jsonData, 0644)
 	if err != nil {
 		return err

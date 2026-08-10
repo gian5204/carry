@@ -1,8 +1,10 @@
-package main
+package storage
 
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/gian5204/carry/internal/repo"
 )
 
 func carryHome() (string, error) {
@@ -14,13 +16,13 @@ func carryHome() (string, error) {
 	return filepath.Join(home, ".carry"), nil
 }
 
-func (r *Repository) StorageDir() (string, error) {
+func storageDir(repository *repo.Repository) (string, error) {
 	home, err := carryHome()
 	if err != nil {
 		return "", err
 	}
 
-	id, err := r.ID()
+	id, err := repository.ID()
 	if err != nil {
 		return "", err
 	}
@@ -28,8 +30,8 @@ func (r *Repository) StorageDir() (string, error) {
 	return filepath.Join(home, "repos", id), nil
 }
 
-func ensureStorageDir(repo *Repository) (string, error) {
-	dir, err := repo.StorageDir()
+func ensureDir(repository *repo.Repository) (string, error) {
+	dir, err := storageDir(repository)
 	if err != nil {
 		return "", err
 	}
