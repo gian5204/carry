@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/gian5204/carry/internal/filetransfer"
 	"github.com/gian5204/carry/internal/protocol"
 	"github.com/gian5204/carry/internal/transport"
 )
@@ -43,6 +44,18 @@ func Send(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Managed files accepted")
+
+			path := managedFiles[0]
+			file, size, err := filetransfer.OpenSource(repository.Root, path)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+
+			if err := protocol.SendFile(connection, path, size, file); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stdout, "Transferred %s\n", path)
 			return nil
 		},
 	)

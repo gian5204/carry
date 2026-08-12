@@ -1,11 +1,13 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"strconv"
 
+	"github.com/gian5204/carry/internal/filetransfer"
 	"github.com/gian5204/carry/internal/protocol"
 	"github.com/gian5204/carry/internal/transport"
 )
@@ -20,7 +22,7 @@ func Receive(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, repositoryID, err := detectRepositoryIdentity()
+	repository, repositoryID, err := detectRepositoryIdentity()
 	if err != nil {
 		return err
 	}
@@ -40,10 +42,35 @@ func Receive(args []string) error {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Repository verified")
-			if _, err := protocol.ReceiveManagedFiles(connection); err != nil {
+			managedFiles, err := protocol.ReceiveManagedFiles(connection)
+			if err != nil {
 				return err
 			}
 			fmt.Fprintln(os.Stdout, "Managed files accepted")
+
+			if err := protocol.ReceiveFile(
+				connection,
+				managedFiles,
+				func(path string, _ int64) (protocol.FileDestination, error) {
+					destination, err := filetransfer.PrepareDestination(
+						repository.Root,
+						path,
+					)
+					if errors.Is(err, filetransfer.ErrDestinationExists) {
+						return nil, protocol.Reject(
+							"destination file already exists",
+							err,
+						)
+					}
+					if errors.Is(err, filetransfer.ErrUnsafePath) {
+						return nil, protocol.Reject("invalid file path", err)
+					}
+					return destination, err
+				},
+			); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stdout, "Received %s\n", managedFiles[0])
 			return nil
 		},
 	)

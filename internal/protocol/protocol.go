@@ -1,11 +1,14 @@
 package protocol
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/gian5204/carry/internal/managedpath"
@@ -13,7 +16,12 @@ import (
 
 const ProtocolVersion = 1
 
-const exchangeTimeout = 5 * time.Second
+const (
+	exchangeTimeout            = 5 * time.Second
+	fileTransferTimeout        = 30 * time.Second
+	maxProtocolFrameSize       = 1 << 20
+	MaxFileSize          int64 = 10 << 20
+)
 
 var ErrRepositoryMismatch = errors.New("repository mismatch")
 
@@ -26,6 +34,9 @@ const (
 	TypeReject          MessageType = "reject"
 	TypeManagedFiles    MessageType = "managed_files"
 	TypeManagedFilesAck MessageType = "managed_files_ack"
+	TypeFileBegin       MessageType = "file_begin"
+	TypeFileReady       MessageType = "file_ready"
+	TypeFileAck         MessageType = "file_ack"
 )
 
 type Message struct {
@@ -34,6 +45,28 @@ type Message struct {
 	RepositoryID    string      `json:"repositoryId,omitempty"`
 	Error           string      `json:"error,omitempty"`
 	Files           []string    `json:"files,omitempty"`
+	Path            string      `json:"path,omitempty"`
+	Size            *int64      `json:"size,omitempty"`
+}
+
+type FileDestination interface {
+	io.Writer
+	Commit() error
+	Abort() error
+}
+
+type PrepareFile func(path string, size int64) (FileDestination, error)
+
+type RejectionError struct {
+	Reason string
+	Err    error
+}
+
+func (e *RejectionError) Error() string { return e.Err.Error() }
+func (e *RejectionError) Unwrap() error { return e.Err }
+
+func Reject(reason string, err error) error {
+	return &RejectionError{Reason: reason, Err: err}
 }
 
 func SendHandshake(connection net.Conn) error {
@@ -227,6 +260,185 @@ func ReceiveManagedFiles(connection net.Conn) ([]string, error) {
 	return files, nil
 }
 
+func SendFile(
+	connection net.Conn,
+	path string,
+	size int64,
+	source io.Reader,
+) error {
+	if err := setFileTransferDeadline(connection); err != nil {
+		return err
+	}
+	defer connection.SetDeadline(time.Time{})
+
+	normalizedPath, err := managedpath.Normalize(path)
+	if err != nil {
+		return fmt.Errorf("validate file path: %w", err)
+	}
+
+	begin := Message{
+		Type:            TypeFileBegin,
+		ProtocolVersion: ProtocolVersion,
+		Path:            normalizedPath,
+		Size:            &size,
+	}
+	if err := writeMessage(connection, begin); err != nil {
+		return fmt.Errorf("send file metadata: %w", err)
+	}
+
+	response, err := readMessage(connection)
+	if err != nil {
+		return fmt.Errorf("read file readiness: %w", err)
+	}
+	if response.Type == TypeReject {
+		return fmt.Errorf("file transfer rejected: %s", response.Error)
+	}
+	if err := expectFileMessage(response, TypeFileReady, normalizedPath); err != nil {
+		return fmt.Errorf("validate file readiness: %w", err)
+	}
+
+	written, err := io.CopyN(connection, source, size)
+	if err != nil {
+		return fmt.Errorf("send file payload after %d bytes: %w", written, err)
+	}
+
+	response, err = readMessage(connection)
+	if err != nil {
+		return fmt.Errorf("read file acknowledgment: %w", err)
+	}
+	if response.Type == TypeReject {
+		return fmt.Errorf("file transfer rejected: %s", response.Error)
+	}
+	if err := expectFileMessage(response, TypeFileAck, normalizedPath); err != nil {
+		return fmt.Errorf("validate file acknowledgment: %w", err)
+	}
+
+	return nil
+}
+
+func ReceiveFile(
+	connection net.Conn,
+	acceptedFiles []string,
+	prepare PrepareFile,
+) (returnErr error) {
+	if err := setFileTransferDeadline(connection); err != nil {
+		return err
+	}
+	defer connection.SetDeadline(time.Time{})
+
+	reader := bufio.NewReaderSize(connection, maxProtocolFrameSize)
+	begin, err := readFramedMessage(reader)
+	if err != nil {
+		return rejectProtocolMessage(
+			connection,
+			"invalid file metadata",
+			fmt.Errorf("read file metadata: %w", err),
+		)
+	}
+	if err := expectMessageType(begin, TypeFileBegin); err != nil {
+		return rejectProtocolMessage(
+			connection,
+			"unexpected file message",
+			fmt.Errorf("validate file metadata: %w", err),
+		)
+	}
+
+	path, err := managedpath.Normalize(begin.Path)
+	if err != nil {
+		return rejectProtocolMessage(
+			connection,
+			"invalid file path",
+			fmt.Errorf("validate file path: %w", err),
+		)
+	}
+	if !containsManagedPath(acceptedFiles, path) {
+		return rejectProtocolMessage(
+			connection,
+			"file path was not accepted",
+			fmt.Errorf("file path was not part of accepted metadata"),
+		)
+	}
+
+	destination, err := prepare(path, *begin.Size)
+	if err != nil {
+		reason := "receiver filesystem failure"
+		var rejection *RejectionError
+		if errors.As(err, &rejection) {
+			reason = rejection.Reason
+		}
+		return rejectProtocolMessage(connection, reason, err)
+	}
+	defer func() {
+		if err := destination.Abort(); err != nil {
+			returnErr = errors.Join(
+				returnErr,
+				fmt.Errorf("clean up temporary file: %w", err),
+			)
+		}
+	}()
+
+	ready := Message{
+		Type:            TypeFileReady,
+		ProtocolVersion: ProtocolVersion,
+		Path:            path,
+	}
+	if err := writeMessage(connection, ready); err != nil {
+		return fmt.Errorf("send file readiness: %w", err)
+	}
+
+	written, err := io.CopyN(destination, reader, *begin.Size)
+	if err != nil {
+		return rejectProtocolMessage(
+			connection,
+			"incomplete file payload",
+			fmt.Errorf("receive file payload after %d bytes: %w", written, err),
+		)
+	}
+	if err := destination.Commit(); err != nil {
+		reason := "receiver filesystem failure"
+		var rejection *RejectionError
+		if errors.As(err, &rejection) {
+			reason = rejection.Reason
+		}
+		return rejectProtocolMessage(connection, reason, err)
+	}
+
+	acknowledgment := Message{
+		Type:            TypeFileAck,
+		ProtocolVersion: ProtocolVersion,
+		Path:            path,
+	}
+	if err := writeMessage(connection, acknowledgment); err != nil {
+		return fmt.Errorf("send file acknowledgment: %w", err)
+	}
+
+	return nil
+}
+
+func containsManagedPath(acceptedFiles []string, path string) bool {
+	for _, accepted := range acceptedFiles {
+		normalized, err := managedpath.Normalize(accepted)
+		if err == nil && strings.EqualFold(normalized, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func expectFileMessage(message Message, expected MessageType, path string) error {
+	if err := expectMessageType(message, expected); err != nil {
+		return err
+	}
+	normalized, err := managedpath.Normalize(message.Path)
+	if err != nil {
+		return err
+	}
+	if normalized != path {
+		return fmt.Errorf("unexpected file path %q: expected %q", normalized, path)
+	}
+	return nil
+}
+
 func rejectProtocolMessage(
 	connection net.Conn,
 	reason string,
@@ -250,6 +462,13 @@ func setExchangeDeadline(connection net.Conn) error {
 	return nil
 }
 
+func setFileTransferDeadline(connection net.Conn) error {
+	if err := connection.SetDeadline(time.Now().Add(fileTransferTimeout)); err != nil {
+		return fmt.Errorf("set file-transfer deadline: %w", err)
+	}
+	return nil
+}
+
 func writeMessage(output io.Writer, message Message) error {
 	if err := validateMessage(message); err != nil {
 		return err
@@ -261,6 +480,18 @@ func writeMessage(output io.Writer, message Message) error {
 }
 
 func readMessage(input io.Reader) (Message, error) {
+	return decodeMessage(input)
+}
+
+func readFramedMessage(input *bufio.Reader) (Message, error) {
+	frame, err := input.ReadSlice('\n')
+	if err != nil {
+		return Message{}, fmt.Errorf("read protocol frame: %w", err)
+	}
+	return decodeMessage(bytes.NewReader(frame))
+}
+
+func decodeMessage(input io.Reader) (Message, error) {
 	var message Message
 	if err := json.NewDecoder(input).Decode(&message); err != nil {
 		return Message{}, fmt.Errorf("decode protocol message: %w", err)
@@ -280,7 +511,10 @@ func validateMessage(message Message) error {
 		TypeRepository,
 		TypeReject,
 		TypeManagedFiles,
-		TypeManagedFilesAck:
+		TypeManagedFilesAck,
+		TypeFileBegin,
+		TypeFileReady,
+		TypeFileAck:
 	default:
 		return fmt.Errorf("unknown message type %q", message.Type)
 	}
@@ -305,6 +539,23 @@ func validateMessage(message Message) error {
 		}
 	case TypeManagedFiles:
 		if _, err := managedpath.NormalizeAll(message.Files); err != nil {
+			return err
+		}
+	case TypeFileBegin:
+		if _, err := managedpath.Normalize(message.Path); err != nil {
+			return err
+		}
+		if message.Size == nil {
+			return fmt.Errorf("file size is required")
+		}
+		if *message.Size < 0 {
+			return fmt.Errorf("file size cannot be negative")
+		}
+		if *message.Size > MaxFileSize {
+			return fmt.Errorf("file size exceeds maximum of %d bytes", MaxFileSize)
+		}
+	case TypeFileReady, TypeFileAck:
+		if _, err := managedpath.Normalize(message.Path); err != nil {
 			return err
 		}
 	}
